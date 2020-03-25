@@ -74,7 +74,7 @@ val RestTodo = functionalComponent<RProps> {
 }
 
 val Input = functionalComponent<RProps> {
-    val smilies = listOf(
+    val smiles = listOf(
         "😛",  // 0
         "😜",  // 1
         "😝",  // 2
@@ -82,10 +82,15 @@ val Input = functionalComponent<RProps> {
     )
     val (idx, setIdx) = useState(0)
 
-    println("HERE")
-    window.setTimeout({
-        setIdx((idx + 1) % smilies.size)
-    }, 500)
+    useEffectWithCleanup(dependencies = emptyList()) {
+        val intervalId = window.setInterval({
+            setIdx(smiles.indices.random())
+        }, 500)
+
+        return@useEffectWithCleanup {
+            window.clearInterval(intervalId)
+        }
+    }
 
     styledInput {
         css {
@@ -97,7 +102,7 @@ val Input = functionalComponent<RProps> {
             maxLength = "2"
             minLength = "1"
             pattern = "[0-1]+"
-            placeholder = smilies[idx]
+            placeholder = smiles[idx]
             type = InputType.text
         }
     }
@@ -120,7 +125,9 @@ class Exercise : RComponent<ExerciseProps, ExerciseState>() {
         div {
             child(Ticker)
             child(RestTodo)
-            child(Input)
+            if (state.actual != "6") {
+                child(Input)
+            }
 
             if (state.triesLeft == 0) {
                 h1 { +cry }
@@ -142,6 +149,7 @@ class Exercise : RComponent<ExerciseProps, ExerciseState>() {
             }
 
             styledP {
+                key = "exercise"
                 css {
                     textAlign = TextAlign.center
                 }
@@ -225,11 +233,11 @@ enum class Operation(val value: String) {
 fun main() {
     fun onExerciseSuccess() {
         render(document.getElementById("root")) {
-            catPicture()
-            br { }
-            br { }
-
             a {
+                catPicture()
+                br { }
+                br { }
+
                 attrs.href = window.location.href
                 +"Chci další úkol.."
             }
