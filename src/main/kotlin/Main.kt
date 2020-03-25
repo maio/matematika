@@ -5,7 +5,9 @@ import kotlinx.css.*
 import kotlinx.html.InputType
 import kotlinx.html.classes
 import kotlinx.html.js.onChangeFunction
+import kotlinx.html.js.onClickFunction
 import kotlinx.html.js.onKeyDownFunction
+import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.events.Event
 import react.*
@@ -29,9 +31,10 @@ interface ExerciseProps : RProps {
     var op: Operation
     var b: Int
     var onSuccess: () -> Any
+    var onFailure: () -> Any
 }
 
-interface ExerciseState : RState {
+interface ExerciseInternalState : RState {
     var triesLeft: Int
     var actual: String
     var success: Boolean
@@ -41,13 +44,21 @@ fun RBuilder.catPicture() = img {
     attrs.src = "https://cataas.com/cat?${Random.nextInt(0, 10000000)}"
 }
 
-val cry = "\uD83D\uDE22"
+val cry = "😿"
 
 val Ticker = functionalComponent<RProps> {
     val (tick, setTick) = useState(0)
-    window.setTimeout({
-        setTick(tick + 1)
-    }, 1000)
+
+    useEffectWithCleanup {
+        val timeoutId = window.setTimeout({
+            setTick(tick + 1)
+        }, 1000)
+
+        return@useEffectWithCleanup {
+            window.clearTimeout(timeoutId)
+        }
+    }
+
     div { +"Tick: $tick" }
 }
 
@@ -108,7 +119,7 @@ val Input = functionalComponent<RProps> {
     }
 }
 
-class Exercise : RComponent<ExerciseProps, ExerciseState>() {
+class Exercise : RComponent<ExerciseProps, ExerciseInternalState>() {
     lateinit var resultInput: HTMLInputElement
 
     init {
@@ -127,14 +138,6 @@ class Exercise : RComponent<ExerciseProps, ExerciseState>() {
             child(RestTodo)
             if (state.actual != "6") {
                 child(Input)
-            }
-
-            if (state.triesLeft == 0) {
-                h1 { +cry }
-                window.setTimeout({
-                    window.location.href = window.location.href
-                }, 3000)
-                return@div
             }
 
             if (state.success) {
@@ -210,10 +213,15 @@ class Exercise : RComponent<ExerciseProps, ExerciseState>() {
         if (actual == expected) {
             props.onSuccess()
         } else {
-            resultInput.value = cry
-            window.setTimeout({ resultInput.value = "" }, 1500)
-            setState {
-                this.triesLeft = triesLeft - 1
+            val triesLeft = state.triesLeft - 1
+            if (triesLeft > 0) {
+                resultInput.value = cry
+                window.setTimeout({ resultInput.value = "" }, 1500)
+                setState {
+                    this.triesLeft = triesLeft
+                }
+            } else {
+                props.onFailure()
             }
         }
     }
@@ -230,31 +238,87 @@ enum class Operation(val value: String) {
     abstract fun compute(a: Int, b: Int): Int
 }
 
-fun main() {
-    fun onExerciseSuccess() {
-        render(document.getElementById("root")) {
-            a {
-                catPicture()
-                br { }
-                br { }
+interface SuccessProps : RProps {
+    var onNext: () -> Unit
+}
 
-                attrs.href = window.location.href
-                +"Chci další úkol.."
-            }
+val Success = functionalComponent<SuccessProps> { props ->
+    var aRef: HTMLElement? = null
+
+    useEffect(emptyList()) { aRef?.focus() }
+
+    a {
+        ref { aRef = it }
+        catPicture()
+        br { }
+        br { }
+
+        attrs.href = "#"
+        attrs.onClickFunction = { event ->
+            event.preventDefault()
+            props.onNext()
         }
+
+        +"Chci další úkol.."
     }
+}
 
-    val a = (0..10).random()
+val Failure = functionalComponent<RProps> {
+    h1 { +cry }
+}
+
+sealed class ExerciseState {
+    data class Pending(
+        val a: Int,
+        val b: Int
+    ) : ExerciseState()
+
+    object Success : ExerciseState()
+    object Failure : ExerciseState()
+}
+
+val Main = functionalComponent<RProps> {
+    val a = (4..10).random()
     val b = (0..a).random()
+    val (result, setResult) = useState(
+        ExerciseState.Pending(
+            a,
+            b
+        ) as ExerciseState
+    )
 
-    render(document.getElementById("root")) {
-        child(Exercise::class) {
-            attrs {
-                this.a = a
-                op = Operation.MINUS
-                this.b = b
-                onSuccess = ::onExerciseSuccess
+    when (result) {
+        is ExerciseState.Pending ->
+            child(Exercise::class) {
+                attrs {
+                    this.a = result.a
+                    op = Operation.MINUS
+                    this.b = result.b
+                    onSuccess = {
+                        setResult(ExerciseState.Success)
+                    }
+                    onFailure = {
+                        setResult(ExerciseState.Failure)
+                    }
+                }
             }
+        is ExerciseState.Success ->
+            child(Success) {
+                attrs.onNext = {
+                    setResult(ExerciseState.Pending(a, b))
+                }
+            }
+        ExerciseState.Failure -> {
+            window.setTimeout({
+                setResult(ExerciseState.Pending(a, b))
+            }, 3000)
+            child(Failure)
         }
+    }.let {}
+}
+
+fun main() {
+    render(document.getElementById("root")) {
+        child(Main)
     }
 }
