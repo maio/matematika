@@ -9,7 +9,7 @@ group = "org.example"
 version = "1.0-SNAPSHOT"
 
 repositories {
-    maven { setUrl("https://dl.bintray.com/kotlin/kotlin-eap") }
+    maven("https://dl.bintray.com/kotlin/kotlin-eap")
     maven("https://kotlin.bintray.com/kotlin-js-wrappers/")
     mavenCentral()
     jcenter()

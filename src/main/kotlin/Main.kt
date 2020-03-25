@@ -66,7 +66,6 @@ val RestTodo = functionalComponent<RProps> {
                     .await()
                     .unsafeCast<TodoItem>()
 
-            console.log(info)
             setTitle(info.title)
         }
     }
