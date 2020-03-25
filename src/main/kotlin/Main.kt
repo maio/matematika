@@ -6,9 +6,6 @@ import kotlinx.html.InputType
 import kotlinx.html.classes
 import kotlinx.html.js.onChangeFunction
 import kotlinx.html.js.onKeyDownFunction
-import kotlinx.serialization.DynamicObjectParser
-import kotlinx.serialization.ImplicitReflectionSerializer
-import kotlinx.serialization.Serializable
 import org.w3c.dom.HTMLInputElement
 import org.w3c.dom.events.Event
 import react.*
@@ -20,7 +17,6 @@ import styled.styledSpan
 import kotlin.browser.document
 import kotlin.browser.window
 import kotlin.random.Random
-import kotlin.reflect.KClass
 
 /**
  * Exercises:
@@ -28,19 +24,17 @@ import kotlin.reflect.KClass
  *   - Missing     8 - ? = 2
  */
 
-
 interface ExerciseProps : RProps {
     var a: Int
     var op: Operation
     var b: Int
-    var onSuccess: (action: ExerciseState) -> Any
+    var onSuccess: () -> Any
 }
 
 interface ExerciseState : RState {
     var triesLeft: Int
     var actual: String
     var success: Boolean
-    var resultInput: HTMLInputElement
 }
 
 fun RBuilder.catPicture() = img {
@@ -50,7 +44,6 @@ fun RBuilder.catPicture() = img {
 val cry = "\uD83D\uDE22"
 
 val Ticker = functionalComponent<RProps> {
-    println("HERE")
     val (tick, setTick) = useState(0)
     window.setTimeout({
         setTick(tick + 1)
@@ -58,7 +51,6 @@ val Ticker = functionalComponent<RProps> {
     div { +"Tick: $tick" }
 }
 
-@Serializable
 data class TodoItem(val userId: Int, val title: String)
 
 val RestTodo = functionalComponent<RProps> {
@@ -67,12 +59,12 @@ val RestTodo = functionalComponent<RProps> {
     if (title.isBlank()) {
         val mainScope = MainScope()
         mainScope.launch {
-            @Suppress("UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
-            val info = window.fetch("https://jsonplaceholder.typicode.com/todos/1")
-                .await()
-                .json()
-                .await()
-                .cast(TodoItem::class)
+            val info =
+                window.fetch("https://jsonplaceholder.typicode.com/todos/1")
+                    .await()
+                    .json()
+                    .await()
+                    .unsafeCast<TodoItem>()
 
             console.log(info)
             setTitle(info.title)
@@ -82,9 +74,34 @@ val RestTodo = functionalComponent<RProps> {
     div { +"Todo Title: $title" }
 }
 
-@OptIn(ImplicitReflectionSerializer::class)
-private inline fun <reified T : Any> Any?.cast(_kClass: KClass<T>): T {
-    return DynamicObjectParser().parse<T>(this)
+val Input = functionalComponent<RProps> {
+    val smilies = listOf(
+        "😛",  // 0
+        "😜",  // 1
+        "😝",  // 2
+        "🤪"   // 3
+    )
+    val (idx, setIdx) = useState(0)
+
+    println("HERE")
+    window.setTimeout({
+        setIdx((idx + 1) % smilies.size)
+    }, 500)
+
+    styledInput {
+        css {
+            textAlign = TextAlign.center
+            fontSize = 550.pct
+        }
+        attrs {
+            size = "2"
+            maxLength = "2"
+            minLength = "1"
+            pattern = "[0-1]+"
+            placeholder = smilies[idx]
+            type = InputType.text
+        }
+    }
 }
 
 class Exercise : RComponent<ExerciseProps, ExerciseState>() {
@@ -104,6 +121,7 @@ class Exercise : RComponent<ExerciseProps, ExerciseState>() {
         div {
             child(Ticker)
             child(RestTodo)
+            child(Input)
 
             if (state.triesLeft == 0) {
                 h1 { +cry }
@@ -183,7 +201,7 @@ class Exercise : RComponent<ExerciseProps, ExerciseState>() {
         val actual = state.actual.toIntOrNull()
 
         if (actual == expected) {
-            props.onSuccess(state)
+            props.onSuccess()
         } else {
             resultInput.value = cry
             window.setTimeout({ resultInput.value = "" }, 1500)
@@ -206,7 +224,7 @@ enum class Operation(val value: String) {
 }
 
 fun main() {
-    fun onExerciseSuccess(exerciseState: @ParameterName(name = "action") ExerciseState) {
+    fun onExerciseSuccess() {
         render(document.getElementById("root")) {
             catPicture()
             br { }
