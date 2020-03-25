@@ -4,12 +4,10 @@ import kotlinx.coroutines.launch
 import kotlinx.css.*
 import kotlinx.html.InputType
 import kotlinx.html.classes
-import kotlinx.html.js.onChangeFunction
 import kotlinx.html.js.onClickFunction
 import kotlinx.html.js.onKeyDownFunction
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLInputElement
-import org.w3c.dom.events.Event
 import react.*
 import react.dom.*
 import styled.css
@@ -27,24 +25,15 @@ import kotlin.random.Random
  */
 
 interface ExerciseProps : RProps {
-    var a: Int
-    var op: Operation
-    var b: Int
-    var onSuccess: () -> Any
-    var onFailure: () -> Any
-}
-
-interface ExerciseInternalState : RState {
-    var triesLeft: Int
-    var actual: String
-    var success: Boolean
+    var exercise: ExerciseState.Pending
+    var onResult: (ExerciseState) -> Any
 }
 
 fun RBuilder.catPicture() = img {
     attrs.src = "https://cataas.com/cat?${Random.nextInt(0, 10000000)}"
 }
 
-val cry = "😿"
+val failmojis = listOf("😦","🤭")
 
 val Ticker = functionalComponent<RProps> {
     val (tick, setTick) = useState(0)
@@ -119,36 +108,26 @@ val Input = functionalComponent<RProps> {
     }
 }
 
-class Exercise : RComponent<ExerciseProps, ExerciseInternalState>() {
+class Exercise(props: ExerciseProps) :
+    RComponent<ExerciseProps, RState>(props) {
     lateinit var resultInput: HTMLInputElement
-
-    init {
-        state.triesLeft = 2
-        state.actual = ""
-        state.success = false
-    }
 
     override fun componentDidMount() {
         resultInput.focus()
     }
 
     override fun RBuilder.render() {
+        val exercise = props.exercise
+
         div {
             child(Ticker)
             child(RestTodo)
-            if (state.actual != "6") {
-                child(Input)
-            }
-
-            if (state.success) {
-                catPicture()
-                return@div
-            }
+            child(Input)
 
             attrs.classes = setOf("exercise")
 
             h1 {
-                +"Úkol (máš ${state.triesLeft} ${if (state.triesLeft == 1) "pokus" else "pokusy"}):"
+                +"Úkol (máš ${exercise.triesLeft} ${if (exercise.triesLeft == 1) "pokus" else "pokusy"}):"
             }
 
             styledP {
@@ -160,14 +139,14 @@ class Exercise : RComponent<ExerciseProps, ExerciseInternalState>() {
                     css {
                         color = Color.red
                     }
-                    +"${props.a}"
+                    +"${exercise.a}"
                 }
-                span { +props.op.value }
+                span { +exercise.op.value }
                 styledSpan {
                     css {
                         color = Color.green
                     }
-                    +"${props.b}"
+                    +"${exercise.b}"
                 }
                 styledSpan {
                     css {
@@ -188,7 +167,6 @@ class Exercise : RComponent<ExerciseProps, ExerciseInternalState>() {
                         pattern = "[0-1]+"
                         placeholder = "?"
                         type = InputType.text
-                        onChangeFunction = ::onChange
                         onKeyDownFunction = { event ->
                             val key = event.asDynamic().key as String
                             if (key == "Enter") {
@@ -201,29 +179,19 @@ class Exercise : RComponent<ExerciseProps, ExerciseInternalState>() {
         }
     }
 
-    private fun onChange(event: Event) {
-        val newValue = (event.target as HTMLInputElement).value
-        setState { actual = newValue }
-    }
-
     private fun onSubmit() {
-        val expected = props.op.compute(props.a, props.b)
-        val actual = state.actual.toIntOrNull()
+        val exercise = props.exercise
+        val actual = resultInput.value.toIntOrNull() ?: return
 
-        if (actual == expected) {
-            props.onSuccess()
-        } else {
-            val triesLeft = state.triesLeft - 1
-            if (triesLeft > 0) {
-                resultInput.value = cry
-                window.setTimeout({ resultInput.value = "" }, 1500)
-                setState {
-                    this.triesLeft = triesLeft
-                }
-            } else {
-                props.onFailure()
-            }
+        val next = exercise.submit(actual)
+
+        // No success yet :/
+        if (next is ExerciseState.Pending) {
+            resultInput.value = failmojis.random()
+            window.setTimeout({ resultInput.value = "" }, 1500)
         }
+
+        props.onResult(next)
     }
 }
 
@@ -263,15 +231,57 @@ val Success = functionalComponent<SuccessProps> { props ->
     }
 }
 
-val Failure = functionalComponent<RProps> {
-    h1 { +cry }
+interface FailureProps : RProps {
+    var onNext: () -> Unit
 }
 
-sealed class ExerciseState {
+val Failure = functionalComponent<FailureProps> { props ->
+    val (idx, setIdx) = useState(0)
+
+    useEffectWithCleanup(listOf(idx)) {
+        val id = window.setTimeout({
+            if (idx == failmojis.size - 1) {
+                props.onNext()
+                return@setTimeout
+            }
+
+            setIdx(idx + 1)
+        }, 1500)
+
+        return@useEffectWithCleanup {
+            window.clearTimeout(id)
+        }
+    }
+
+    styledP {
+        css {
+            fontSize = 600.pct
+        }
+        +failmojis[idx]
+    }
+}
+
+sealed class ExerciseState : RState {
     data class Pending(
         val a: Int,
-        val b: Int
-    ) : ExerciseState()
+        val op: Operation,
+        val b: Int,
+        var triesLeft: Int = 2
+    ) : ExerciseState() {
+        fun submit(actual: Int): ExerciseState {
+            return if (actual == op.compute(a, b)) {
+                Success
+            } else {
+                val triesLeft = this.triesLeft - 1
+
+                if (triesLeft > 0) {
+                    copy(triesLeft = triesLeft)
+                } else {
+                    Failure
+                }
+            }
+        }
+    }
 
     object Success : ExerciseState()
     object Failure : ExerciseState()
@@ -280,39 +290,32 @@ sealed class ExerciseState {
 val Main = functionalComponent<RProps> {
     val a = (4..10).random()
     val b = (0..a).random()
+    val op = Operation.MINUS
+
     val (result, setResult) = useState(
-        ExerciseState.Pending(
-            a,
-            b
-        ) as ExerciseState
+        ExerciseState.Pending(a, op, b) as ExerciseState
     )
 
     when (result) {
         is ExerciseState.Pending ->
             child(Exercise::class) {
                 attrs {
-                    this.a = result.a
-                    op = Operation.MINUS
-                    this.b = result.b
-                    onSuccess = {
-                        setResult(ExerciseState.Success)
-                    }
-                    onFailure = {
-                        setResult(ExerciseState.Failure)
-                    }
+                    this.exercise = result
+                    onResult = { setResult(it) }
                 }
             }
         is ExerciseState.Success ->
             child(Success) {
                 attrs.onNext = {
-                    setResult(ExerciseState.Pending(a, b))
+                    setResult(ExerciseState.Pending(a, op, b))
                 }
             }
         ExerciseState.Failure -> {
-            window.setTimeout({
-                setResult(ExerciseState.Pending(a, b))
-            }, 3000)
-            child(Failure)
+            child(Failure) {
+                attrs.onNext = {
+                    setResult(ExerciseState.Pending(a, op, b))
+                }
+            }
         }
     }.let {}
 }
