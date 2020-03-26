@@ -29,11 +29,19 @@ interface ExerciseProps : RProps {
     var onResult: (ExerciseState) -> Any
 }
 
-fun RBuilder.catPicture() = img {
-    attrs.src = "https://cataas.com/cat?${Random.nextInt(0, 10000000)}"
+fun RBuilder.preload(block: RBuilder.() -> Unit) = div {
+    attrs.jsStyle {
+        display = "none"
+    }
+    block()
 }
 
-val failmojis = listOf("😦","🤭")
+
+fun RBuilder.catPicture(imageId: Int) = img {
+    attrs.src = "https://cataas.com/cat?$imageId"
+}
+
+val failmojis = listOf("😦", "🤭")
 
 val Ticker = functionalComponent<RProps> {
     val (tick, setTick) = useState(0)
@@ -207,6 +215,7 @@ enum class Operation(val value: String) {
 }
 
 interface SuccessProps : RProps {
+    var imageId: Int
     var onNext: () -> Unit
 }
 
@@ -217,7 +226,7 @@ val Success = functionalComponent<SuccessProps> { props ->
 
     a {
         ref { aRef = it }
-        catPicture()
+        catPicture(props.imageId)
         br { }
         br { }
 
@@ -266,11 +275,12 @@ sealed class ExerciseState : RState {
         val a: Int,
         val op: Operation,
         val b: Int,
+        val successImageId: Int,
         var triesLeft: Int = 2
     ) : ExerciseState() {
         fun submit(actual: Int): ExerciseState {
             return if (actual == op.compute(a, b)) {
-                Success
+                Success(successImageId)
             } else {
                 val triesLeft = this.triesLeft - 1
 
@@ -283,7 +293,7 @@ sealed class ExerciseState : RState {
         }
     }
 
-    object Success : ExerciseState()
+    data class Success(val imageId: Int) : ExerciseState()
     object Failure : ExerciseState()
 }
 
@@ -291,29 +301,49 @@ val Main = functionalComponent<RProps> {
     val a = (4..10).random()
     val b = (0..a).random()
     val op = Operation.MINUS
+    val successImageId = Random.nextInt(0, 100000000)
 
-    val (result, setResult) = useState(
-        ExerciseState.Pending(a, op, b) as ExerciseState
-    )
+    val (result, setResult) = useState {
+        ExerciseState.Pending(
+            a = a,
+            op = op,
+            b = b,
+            successImageId = successImageId
+        ) as ExerciseState
+    }
 
     when (result) {
-        is ExerciseState.Pending ->
+        is ExerciseState.Pending -> div {
+            preload {
+                catPicture(result.successImageId)
+            }
             child(Exercise::class) {
                 attrs {
                     this.exercise = result
                     onResult = { setResult(it) }
                 }
             }
+        }
         is ExerciseState.Success ->
             child(Success) {
-                attrs.onNext = {
-                    setResult(ExerciseState.Pending(a, op, b))
+                attrs {
+                    imageId = result.imageId
+                    onNext = {
+                        setResult(
+                            ExerciseState.Pending(
+                                a,
+                                op,
+                                b,
+                                successImageId
+                            )
+                        )
+                    }
                 }
             }
         ExerciseState.Failure -> {
             child(Failure) {
                 attrs.onNext = {
-                    setResult(ExerciseState.Pending(a, op, b))
+                    setResult(ExerciseState.Pending(a, op, b, successImageId))
                 }
             }
         }
